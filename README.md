@@ -349,32 +349,32 @@ resource "opnsense_wireguard_peer" "remote_user" {
 This provider uses the following OPNsense API endpoints:
 
 ### Firewall
-- `/api/firewall/filter/addRule` - Create rule
-- `/api/firewall/filter/getRule/{uuid}` - Get rule
-- `/api/firewall/filter/setRule/{uuid}` - Update rule
-- `/api/firewall/filter/delRule/{uuid}` - Delete rule
+- `/api/firewall/filter/add_rule` - Create rule
+- `/api/firewall/filter/get-rule/{uuid}` - Get rule
+- `/api/firewall/filter/set_rule/{uuid}` - Update rule
+- `/api/firewall/filter/del_rule/{uuid}` - Delete rule
 - `/api/firewall/filter/apply` - Apply changes
-- `/api/firewall/alias/addItem` - Create alias
-- `/api/firewall/alias/setItem/{uuid}` - Update alias
-- `/api/firewall/alias/delItem/{uuid}` - Delete alias
+- `/api/firewall/alias/add_item` - Create alias
+- `/api/firewall/alias/set_item/{uuid}` - Update alias
+- `/api/firewall/alias/del_item/{uuid}` - Delete alias
 - `/api/firewall/alias/reconfigure` - Apply alias changes
 
 ### Kea DHCP
-- `/api/kea/dhcpv4/addSubnet` - Create subnet
-- `/api/kea/dhcpv4/setSubnet/{uuid}` - Update subnet
-- `/api/kea/dhcpv4/delSubnet/{uuid}` - Delete subnet
-- `/api/kea/dhcpv4/addReservation` - Create reservation
-- `/api/kea/dhcpv4/setReservation/{uuid}` - Update reservation
-- `/api/kea/dhcpv4/delReservation/{uuid}` - Delete reservation
+- `/api/kea/dhcpv4/add_subnet` - Create subnet
+- `/api/kea/dhcpv4/set_subnet/{uuid}` - Update subnet
+- `/api/kea/dhcpv4/del_subnet/{uuid}` - Delete subnet
+- `/api/kea/dhcpv4/add_reservation` - Create reservation
+- `/api/kea/dhcpv4/set_reservation/{uuid}` - Update reservation
+- `/api/kea/dhcpv4/del_reservation/{uuid}` - Delete reservation
 - `/api/kea/service/reconfigure` - Apply Kea changes
 
 ### WireGuard
-- `/api/wireguard/server/addServer` - Create server
-- `/api/wireguard/server/setServer/{uuid}` - Update server
-- `/api/wireguard/server/delServer/{uuid}` - Delete server
-- `/api/wireguard/client/addClient` - Create peer
-- `/api/wireguard/client/setClient/{uuid}` - Update peer
-- `/api/wireguard/client/delClient/{uuid}` - Delete peer
+- `/api/wireguard/server/add_server` - Create server
+- `/api/wireguard/server/set_server/{uuid}` - Update server
+- `/api/wireguard/server/del_server/{uuid}` - Delete server
+- `/api/wireguard/client/add_client` - Create peer
+- `/api/wireguard/client/set_client/{uuid}` - Update peer
+- `/api/wireguard/client/del_client/{uuid}` - Delete peer
 - `/api/wireguard/service/reconfigure` - Apply WireGuard changes
 
 ## Testing
