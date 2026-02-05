@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-
 var _ resource.Resource = &WireguardServerResource{}
 var _ resource.ResourceWithImportState = &WireguardServerResource{}
 

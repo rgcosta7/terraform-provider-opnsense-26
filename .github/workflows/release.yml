@@ -143,6 +143,31 @@ jobs:
           find artifacts -type f -exec cp {} release/ \;
           ls -lah release/
 
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign checksums
+        run: |
+          cd release
+          VERSION="${{ needs.check-trigger.outputs.version }}"
+          SHASUMS_FILE="terraform-provider-opnsense_${VERSION}_SHA256SUMS"
+          
+          # Sign the checksums file
+          gpg --detach-sign --armor "${SHASUMS_FILE}"
+          
+          # Verify signature was created
+          if [ ! -f "${SHASUMS_FILE}.sig" ]; then
+            echo "Error: Signature file not created"
+            exit 1
+          fi
+          
+          echo "✅ Checksums signed successfully"
+          ls -la "${SHASUMS_FILE}"*
+
       - name: Generate release notes
         id: notes
         run: |
