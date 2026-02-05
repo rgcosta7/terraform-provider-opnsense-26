@@ -1,0 +1,266 @@
+name: Build and Release Provider
+
+on:
+  push:
+    branches:
+      - main
+    # Only trigger on commits that start with "BUILD:"
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+
+jobs:
+  # Check if commit message starts with "BUILD:"
+  check-trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check commit message
+        id: check
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $COMMIT_MSG"
+          if [[ "$COMMIT_MSG" =~ ^BUILD: ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "✅ Build triggered by commit message"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping build - commit message doesn't start with 'BUILD:'"
+          fi
+
+      - name: Extract version from commit message
+        id: extract
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          # Extract version from "BUILD: v1.2.3" or "BUILD: 1.2.3"
+          VERSION=$(echo "$COMMIT_MSG" | sed -n 's/^BUILD: *v*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+          if [ -z "$VERSION" ]; then
+            # Default version if not specified
+            VERSION="0.1.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION"
+
+  build:
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            goos: linux
+            goarch: arm64
+          - os: darwin
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+          - os: windows
+            arch: amd64
+            goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build Provider
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${{ needs.check-trigger.outputs.version }}"
+          
+          # Build the provider
+          go mod download
+          go build -o terraform-provider-opnsense \
+            -ldflags="-s -w -X main.version=$VERSION" \
+            -trimpath
+          
+          # Create output directory
+          mkdir -p dist
+          
+          # Package the binary
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            mv terraform-provider-opnsense terraform-provider-opnsense.exe
+            zip "dist/terraform-provider-opnsense_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" \
+              terraform-provider-opnsense.exe
+          else
+            tar -czf "dist/terraform-provider-opnsense_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" \
+              terraform-provider-opnsense
+          fi
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum * > terraform-provider-opnsense_${{ needs.check-trigger.outputs.version }}_SHA256SUMS
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-provider-opnsense-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 30
+
+  release:
+    needs: [check-trigger, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -lah release/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ needs.check-trigger.outputs.version }}"
+          COMMIT_MSG=$(git log -1 --pretty=%B | tail -n +2)
+          
+          cat > release-notes.md << EOF
+          # Terraform Provider for OPNsense v${VERSION}
+          
+          ## 📦 Release Information
+          
+          **Version:** ${VERSION}
+          **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit:** $(git rev-parse --short HEAD)
+          
+          ## 📝 Changes
+          
+          ${COMMIT_MSG}
+          
+          ## 🚀 Installation
+          
+          ### Option 1: Terraform Registry (Coming Soon)
+          
+          \`\`\`hcl
+          terraform {
+            required_providers {
+              opnsense = {
+                source  = "rgcosta7/opnsense"
+                version = "~> ${VERSION}"
+              }
+            }
+          }
+          \`\`\`
+          
+          ### Option 2: Local Installation
+          
+          #### Linux/macOS
+          
+          \`\`\`bash
+          # Download the appropriate binary for your platform
+          # Extract and install
+          mkdir -p ~/.terraform.d/plugins/localhost/local/opnsense/${VERSION}/linux_amd64
+          tar -xzf terraform-provider-opnsense_${VERSION}_linux_amd64.tar.gz -C ~/.terraform.d/plugins/localhost/local/opnsense/${VERSION}/linux_amd64/
+          \`\`\`
+          
+          #### Windows
+          
+          \`\`\`powershell
+          # Download the appropriate binary
+          # Extract to Terraform plugins directory
+          \$pluginDir = "\$env:APPDATA\terraform.d\plugins\localhost\local\opnsense\${VERSION}\windows_amd64"
+          New-Item -ItemType Directory -Force -Path \$pluginDir
+          Expand-Archive -Path terraform-provider-opnsense_${VERSION}_windows_amd64.zip -DestinationPath \$pluginDir
+          \`\`\`
+          
+          ### Option 3: Use in Terraform
+          
+          \`\`\`hcl
+          terraform {
+            required_providers {
+              opnsense = {
+                source  = "localhost/local/opnsense"
+                version = "${VERSION}"
+              }
+            }
+          }
+          
+          provider "opnsense" {
+            host       = "https://192.168.1.1"
+            api_key    = var.opnsense_api_key
+            api_secret = var.opnsense_api_secret
+            insecure   = true
+          }
+          \`\`\`
+          
+          ## 📚 Resources
+          
+          - **Firewall:** Rules, Aliases, Categories
+          - **NAT:** Destination NAT (Port Forwarding)
+          - **DHCP:** Kea Subnets and Reservations
+          - **VPN:** WireGuard Servers and Peers
+          
+          ## 🔐 Verification
+          
+          Verify the download with SHA256 checksums:
+          
+          \`\`\`bash
+          sha256sum -c terraform-provider-opnsense_${VERSION}_SHA256SUMS
+          \`\`\`
+          
+          ## 📖 Documentation
+          
+          Full documentation available at: https://github.com/rgcosta7/terraform-provider-opnsense-26
+          
+          ## 🐛 Issues
+          
+          Report issues at: https://github.com/rgcosta7/terraform-provider-opnsense-26/issues
+          EOF
+          
+          cat release-notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-trigger.outputs.version }}
+          name: Release v${{ needs.check-trigger.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## ✅ Release Published!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v${{ needs.check-trigger.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View Release](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-trigger.outputs.version }})" >> $GITHUB_STEP_SUMMARY
