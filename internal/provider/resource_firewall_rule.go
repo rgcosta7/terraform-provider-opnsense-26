@@ -46,6 +46,7 @@ type FirewallRuleResourceModel struct {
 	Enabled     types.Bool   `tfsdk:"enabled"`
 	Log         types.Bool   `tfsdk:"log"`
 	Quick       types.Bool   `tfsdk:"quick"`
+	Invert      types.Bool   `tfsdk:"invert"`
 	Categories  types.List   `tfsdk:"categories"`
 }
 
@@ -115,6 +116,10 @@ func (r *FirewallRuleResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"quick": schema.BoolAttribute{
 				MarkdownDescription: "Apply action immediately on match",
+				Optional:            true,
+			},
+			"invert": schema.BoolAttribute{
+				MarkdownDescription: "Invert the rule match (NOT operation)",
 				Optional:            true,
 			},
 			"categories": schema.ListAttribute{
@@ -210,6 +215,13 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 			ruleData["rule"].(map[string]interface{})["quick"] = "1"
 		} else {
 			ruleData["rule"].(map[string]interface{})["quick"] = "0"
+		}
+	}
+	if !data.Invert.IsNull() {
+		if data.Invert.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["invert"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["invert"] = "0"
 		}
 	}
 	if !data.Categories.IsNull() {
@@ -378,6 +390,13 @@ func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRe
 			ruleData["rule"].(map[string]interface{})["quick"] = "1"
 		} else {
 			ruleData["rule"].(map[string]interface{})["quick"] = "0"
+		}
+	}
+	if !data.Invert.IsNull() {
+		if data.Invert.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["invert"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["invert"] = "0"
 		}
 	}
 	if !data.Categories.IsNull() {
