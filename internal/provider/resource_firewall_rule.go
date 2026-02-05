@@ -45,7 +45,8 @@ type FirewallRuleResourceModel struct {
 	Action      types.String `tfsdk:"action"`
 	Enabled     types.Bool   `tfsdk:"enabled"`
 	Log         types.Bool   `tfsdk:"log"`
-	Category    types.String `tfsdk:"category"`
+	Quick       types.Bool   `tfsdk:"quick"`
+	Categories  types.List   `tfsdk:"categories"`
 }
 
 func (r *FirewallRuleResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -112,9 +113,14 @@ func (r *FirewallRuleResource) Schema(ctx context.Context, req resource.SchemaRe
 				MarkdownDescription: "Whether to log packets matching this rule",
 				Optional:            true,
 			},
-			"category": schema.StringAttribute{
-				MarkdownDescription: "Category for organizing rules",
+			"quick": schema.BoolAttribute{
+				MarkdownDescription: "Apply action immediately on match",
 				Optional:            true,
+			},
+			"categories": schema.ListAttribute{
+				MarkdownDescription: "List of category UUIDs for organizing rules",
+				Optional:            true,
+				ElementType:         types.StringType,
 			},
 		},
 	}
@@ -199,8 +205,20 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 			ruleData["rule"].(map[string]interface{})["log"] = "0"
 		}
 	}
-	if !data.Category.IsNull() {
-		ruleData["rule"].(map[string]interface{})["category"] = data.Category.ValueString()
+	if !data.Quick.IsNull() {
+		if data.Quick.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["quick"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["quick"] = "0"
+		}
+	}
+	if !data.Categories.IsNull() {
+		var categories []string
+		resp.Diagnostics.Append(data.Categories.ElementsAs(ctx, &categories, false)...)
+		if !resp.Diagnostics.HasError() && len(categories) > 0 {
+			// OPNsense expects comma-separated category UUIDs
+			ruleData["rule"].(map[string]interface{})["category"] = strings.Join(categories, ",")
+		}
 	}
 
 	// Make API call to create rule
@@ -355,8 +373,19 @@ func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRe
 			ruleData["rule"].(map[string]interface{})["log"] = "0"
 		}
 	}
-	if !data.Category.IsNull() {
-		ruleData["rule"].(map[string]interface{})["category"] = data.Category.ValueString()
+	if !data.Quick.IsNull() {
+		if data.Quick.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["quick"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["quick"] = "0"
+		}
+	}
+	if !data.Categories.IsNull() {
+		var categories []string
+		resp.Diagnostics.Append(data.Categories.ElementsAs(ctx, &categories, false)...)
+		if !resp.Diagnostics.HasError() && len(categories) > 0 {
+			ruleData["rule"].(map[string]interface{})["category"] = strings.Join(categories, ",")
+		}
 	}
 
 	jsonData, _ := json.Marshal(ruleData)
