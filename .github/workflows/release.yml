@@ -150,7 +150,6 @@ jobs:
           
           ls -lah
 
-          
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v6
@@ -166,27 +165,61 @@ jobs:
           
           # Verify checksums file exists
           if [ ! -f "${SHASUMS_FILE}" ]; then
-            echo "Error: ${SHASUMS_FILE} not found"
+            echo "❌ Error: ${SHASUMS_FILE} not found"
             ls -la
             exit 1
           fi
           
           echo "📝 Signing ${SHASUMS_FILE}..."
+          echo "File size: $(wc -c < "${SHASUMS_FILE}") bytes"
+          echo ""
           
-          # Sign the checksums file
-          gpg --detach-sign --armor "${SHASUMS_FILE}"
+          # Show GPG configuration
+          echo "🔑 GPG Configuration:"
+          gpg --version | head -1
+          echo ""
           
-          # Verify signature was created
+          # List keys
+          echo "🔑 Available keys:"
+          gpg --list-secret-keys
+          echo ""
+          
+          # Get the key ID
+          KEY_ID=$(gpg --list-secret-keys --keyid-format=long | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          echo "Using key: $KEY_ID"
+          echo ""
+          
+          # Sign the checksums file with explicit options
+          echo "📝 Signing with GPG..."
+          gpg --batch --yes --pinentry-mode loopback --detach-sign --armor \
+            --default-key "$KEY_ID" \
+            "${SHASUMS_FILE}"
+          
+          # Check if signature was created
           if [ ! -f "${SHASUMS_FILE}.sig" ]; then
             echo "❌ Error: Signature file not created"
+            echo "Checking GPG status..."
             gpg --list-keys
-            exit 1
+            echo ""
+            echo "Trying alternative signing method..."
+            # Try with explicit output file
+            gpg --batch --yes --pinentry-mode loopback --detach-sign --armor \
+              --output "${SHASUMS_FILE}.sig" \
+              --default-key "$KEY_ID" \
+              "${SHASUMS_FILE}" || {
+                echo "Alternative method also failed"
+                echo "GPG debug info:"
+                gpg --list-secret-keys --keyid-format=long
+                exit 1
+              }
           fi
           
           echo "✅ Checksums signed successfully"
           ls -la "${SHASUMS_FILE}"*
+          echo ""
           
           # Verify the signature
+          echo "🔍 Verifying signature..."
           gpg --verify "${SHASUMS_FILE}.sig" "${SHASUMS_FILE}"
 
       - name: Generate release notes

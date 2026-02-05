@@ -51,6 +51,13 @@ echo "📤 Exporting keys..."
 gpg --armor --export-secret-keys "$KEY_ID" > terraform-gpg-private.asc
 gpg --armor --export "$KEY_ID" > terraform-gpg-public.asc
 
+# Verify format (should have blank line after header)
+if ! grep -q "^$" terraform-gpg-private.asc; then
+    echo "⚠️  Warning: Key may be missing blank line. Fixing..."
+    # Fix format by ensuring blank line after BEGIN
+    sed -i '1 a\\' terraform-gpg-private.asc
+fi
+
 # Get fingerprint
 FINGERPRINT=$(gpg --fingerprint "$KEY_ID" | grep -A 1 "Key fingerprint" | tail -1 | tr -d ' ')
 
