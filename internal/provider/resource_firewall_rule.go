@@ -253,6 +253,12 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
+	tflog.Debug(ctx, "Creating firewall rule", map[string]any{
+		"json": string(jsonData),
+		"destination_net": data.DestNet.ValueString(),
+		"source_net": data.SourceNet.ValueString(),
+	})
+
 	url := fmt.Sprintf("%s/api/firewall/filter/addRule", r.client.Host)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
 	if err != nil {
@@ -277,6 +283,11 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read response: %s", err))
 		return
 	}
+
+	tflog.Debug(ctx, "API Response", map[string]any{
+		"status_code": httpResp.StatusCode,
+		"body": string(body),
+	})
 
 	if httpResp.StatusCode != 200 {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("API returned status %d: %s", httpResp.StatusCode, string(body)))
