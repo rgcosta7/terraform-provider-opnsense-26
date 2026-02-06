@@ -24,24 +24,10 @@ func NewKeaSubnetResource() resource.Resource {
 	return &KeaSubnetResource{}
 }
 
-// 1. Corrected signature: includes ctx to match the call in mapToPayload
-func parseOptionData(ctx context.Context, optionMap map[string]string) map[string]interface{} {
-	optionData := make(map[string]interface{})
-	for name, dataVal := range optionMap {
-		optionKey := strings.ReplaceAll(name, "-", "_")
-		optionData[optionKey] = map[string]interface{}{
-			"value":    dataVal,
-			"selected": 1,
-		}
-	}
-	return optionData
-}
-
 type KeaSubnetResource struct {
 	client *Client
 }
 
-// 2. Corrected Model: Added AutoCollect field
 type KeaSubnetResourceModel struct {
 	ID          types.String `tfsdk:"id"`
 	Subnet      types.String `tfsdk:"subnet"`
@@ -55,7 +41,6 @@ func (r *KeaSubnetResource) Metadata(ctx context.Context, req resource.MetadataR
 	resp.TypeName = req.ProviderTypeName + "_kea_subnet"
 }
 
-// 3. Corrected Schema: Explicitly includes auto_collect and map type for options
 func (r *KeaSubnetResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -63,25 +48,23 @@ func (r *KeaSubnetResource) Schema(ctx context.Context, req resource.SchemaReque
 				Computed: true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"subnet": schema.StringAttribute{Required: true},
-			"pools":  schema.StringAttribute{Optional: true},
-			"option_data": schema.MapAttribute{
-				ElementType: types.StringType,
-				Optional:    true,
-			},
+			"subnet":      schema.StringAttribute{Required: true},
+			"pools":       schema.StringAttribute{Optional: true},
+			"description": schema.StringAttribute{Optional: true},
 			"auto_collect": schema.BoolAttribute{
 				Optional: true,
 				Computed: true,
 			},
-			"description": schema.StringAttribute{Optional: true},
+			"option_data": schema.MapAttribute{
+				ElementType: types.StringType,
+				Optional:    true,
+			},
 		},
 	}
 }
 
 func (r *KeaSubnetResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
+	if req.ProviderData == nil { return }
 	client, ok := req.ProviderData.(*Client)
 	if !ok {
 		resp.Diagnostics.AddError("Type Error", "Expected *Client")
@@ -105,9 +88,11 @@ func (r *KeaSubnetResource) Create(ctx context.Context, req resource.CreateReque
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
 
+	// OPNsense returns UUID in 'uuid' field
 	if uuid, ok := result["uuid"].(string); ok {
 		data.ID = types.StringValue(uuid)
 	}
+
 	r.reconfigureService(ctx)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -143,6 +128,7 @@ func (r *KeaSubnetResource) Update(ctx context.Context, req resource.UpdateReque
 
 	url := fmt.Sprintf("%s/api/kea/dhcpv4/set_subnet/%s", r.client.Host, data.ID.ValueString())
 	r.doRequest(ctx, "POST", url, jsonData, &resp.Diagnostics)
+	
 	r.reconfigureService(ctx)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -159,7 +145,6 @@ func (r *KeaSubnetResource) ImportState(ctx context.Context, req resource.Import
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// 4. Corrected Payload Helper: correctly handles ctx and AutoCollect mapping
 func (r *KeaSubnetResource) mapToPayload(ctx context.Context, data *KeaSubnetResourceModel) map[string]interface{} {
 	subnet4 := map[string]interface{}{
 		"subnet": data.Subnet.ValueString(),
@@ -168,18 +153,29 @@ func (r *KeaSubnetResource) mapToPayload(ctx context.Context, data *KeaSubnetRes
 	if !data.Pools.IsNull() { subnet4["pools"] = data.Pools.ValueString() }
 	if !data.Description.IsNull() { subnet4["description"] = data.Description.ValueString() }
 	
+	// Convert bool to OPNsense string "0" or "1"
 	if !data.AutoCollect.IsNull() && !data.AutoCollect.ValueBool() {
 		subnet4["option_data_autocollect"] = "0"
 	} else {
 		subnet4["option_data_autocollect"] = "1"
 	}
 
+	// Handle the options map
 	if !data.Option.IsNull() && !data.Option.IsUnknown() {
 		var optionMap map[string]string
-		diags := data.Option.ElementsAs(ctx, &optionMap, false)
-		if !diags.HasError() {
-			subnet4["option_data"] = parseOptionData(ctx, optionMap)
+		data.Option.ElementsAs(ctx, &optionMap, false)
+		
+		formattedOptions := make(map[string]interface{})
+		for k, v := range optionMap {
+			key := strings.ReplaceAll(k, "-", "_")
+			formattedOptions[key] = map[string]interface{}{
+				"": map[string]interface{}{
+					"value":    v,
+					"selected": 1,
+				},
+			}
 		}
+		subnet4["option_data"] = formattedOptions
 	}
 
 	return map[string]interface{}{"subnet4": subnet4}
@@ -191,6 +187,7 @@ func (r *KeaSubnetResource) doRequest(ctx context.Context, method, url string, b
 	req, _ := http.NewRequestWithContext(ctx, method, url, reader)
 	req.SetBasicAuth(r.client.ApiKey, r.client.ApiSecret)
 	req.Header.Set("Content-Type", "application/json")
+	
 	httpResp, err := r.client.client.Do(req)
 	if err != nil {
 		diags.AddError("Client Error", err.Error())
@@ -198,6 +195,7 @@ func (r *KeaSubnetResource) doRequest(ctx context.Context, method, url string, b
 	}
 	defer httpResp.Body.Close()
 	respBody, _ := io.ReadAll(httpResp.Body)
+	
 	if httpResp.StatusCode != 200 {
 		diags.AddError("API Error", fmt.Sprintf("Status %d: %s", httpResp.StatusCode, string(respBody)))
 		return nil
