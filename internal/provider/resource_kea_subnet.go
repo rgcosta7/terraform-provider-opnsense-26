@@ -24,7 +24,7 @@ func NewKeaSubnetResource() resource.Resource {
 	return &KeaSubnetResource{}
 }
 
-// Helper function to parse simple Map into OPNsense format
+// 1. Corrected signature: includes ctx to match the call in mapToPayload
 func parseOptionData(ctx context.Context, optionMap map[string]string) map[string]interface{} {
 	optionData := make(map[string]interface{})
 	for name, dataVal := range optionMap {
@@ -41,12 +41,13 @@ type KeaSubnetResource struct {
 	client *Client
 }
 
+// 2. Corrected Model: Added AutoCollect field
 type KeaSubnetResourceModel struct {
 	ID          types.String `tfsdk:"id"`
 	Subnet      types.String `tfsdk:"subnet"`
 	Pools       types.String `tfsdk:"pools"`
 	Option      types.Map    `tfsdk:"option_data"`
-	AutoCollect types.Bool   `tfsdk:"auto_collect"`	
+	AutoCollect types.Bool   `tfsdk:"auto_collect"`
 	Description types.String `tfsdk:"description"`
 }
 
@@ -54,22 +55,23 @@ func (r *KeaSubnetResource) Metadata(ctx context.Context, req resource.MetadataR
 	resp.TypeName = req.ProviderTypeName + "_kea_subnet"
 }
 
+// 3. Corrected Schema: Explicitly includes auto_collect and map type for options
 func (r *KeaSubnetResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages Kea DHCP subnets in OPNsense",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"subnet":      schema.StringAttribute{Required: true},
-			"pools":       schema.StringAttribute{Optional: true},
+			"subnet": schema.StringAttribute{Required: true},
+			"pools":  schema.StringAttribute{Optional: true},
 			"option_data": schema.MapAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
-				MarkdownDescription: "DHCP options data as a map (e.g. { routers = '10.0.0.1' })",
+			},
+			"auto_collect": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
 			},
 			"description": schema.StringAttribute{Optional: true},
 		},
@@ -91,28 +93,21 @@ func (r *KeaSubnetResource) Configure(ctx context.Context, req resource.Configur
 func (r *KeaSubnetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data KeaSubnetResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	if resp.Diagnostics.HasError() { return }
 
 	payload := r.mapToPayload(ctx, &data)
 	jsonData, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/api/kea/dhcpv4/add_subnet", r.client.Host)
 	body := r.doRequest(ctx, "POST", url, jsonData, &resp.Diagnostics)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	if resp.Diagnostics.HasError() { return }
 
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
 
 	if uuid, ok := result["uuid"].(string); ok {
 		data.ID = types.StringValue(uuid)
-	} else if res, ok := result["result"].(string); ok && res != "failed" {
-		data.ID = types.StringValue(res)
 	}
-
 	r.reconfigureService(ctx)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -120,15 +115,11 @@ func (r *KeaSubnetResource) Create(ctx context.Context, req resource.CreateReque
 func (r *KeaSubnetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data KeaSubnetResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	if resp.Diagnostics.HasError() { return }
 
 	url := fmt.Sprintf("%s/api/kea/dhcpv4/get_subnet/%s", r.client.Host, data.ID.ValueString())
 	body := r.doRequest(ctx, "GET", url, nil, &resp.Diagnostics)
-	if resp.Diagnostics.HasError() || body == nil {
-		return
-	}
+	if resp.Diagnostics.HasError() || body == nil { return }
 
 	var result map[string]interface{}
 	json.Unmarshal(body, &result)
@@ -139,23 +130,19 @@ func (r *KeaSubnetResource) Read(ctx context.Context, req resource.ReadRequest, 
 		data.Description = types.StringValue(subnetData["description"].(string))
 		data.AutoCollect = types.BoolValue(subnetData["option_data_autocollect"].(string) == "1")
 	}
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *KeaSubnetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data KeaSubnetResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	if resp.Diagnostics.HasError() { return }
 
 	payload := r.mapToPayload(ctx, &data)
 	jsonData, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/api/kea/dhcpv4/set_subnet/%s", r.client.Host, data.ID.ValueString())
 	r.doRequest(ctx, "POST", url, jsonData, &resp.Diagnostics)
-	
 	r.reconfigureService(ctx)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -163,7 +150,6 @@ func (r *KeaSubnetResource) Update(ctx context.Context, req resource.UpdateReque
 func (r *KeaSubnetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data KeaSubnetResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	url := fmt.Sprintf("%s/api/kea/dhcpv4/del_subnet/%s", r.client.Host, data.ID.ValueString())
 	r.doRequest(ctx, "POST", url, nil, &resp.Diagnostics)
 	r.reconfigureService(ctx)
@@ -173,7 +159,7 @@ func (r *KeaSubnetResource) ImportState(ctx context.Context, req resource.Import
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// Internal Helper: Map model to API payload
+// 4. Corrected Payload Helper: correctly handles ctx and AutoCollect mapping
 func (r *KeaSubnetResource) mapToPayload(ctx context.Context, data *KeaSubnetResourceModel) map[string]interface{} {
 	subnet4 := map[string]interface{}{
 		"subnet": data.Subnet.ValueString(),
@@ -199,24 +185,18 @@ func (r *KeaSubnetResource) mapToPayload(ctx context.Context, data *KeaSubnetRes
 	return map[string]interface{}{"subnet4": subnet4}
 }
 
-// Internal Helper: Execute HTTP Request using generic diagnostics
 func (r *KeaSubnetResource) doRequest(ctx context.Context, method, url string, body []byte, diags *diag.Diagnostics) []byte {
 	var reader io.Reader
-	if body != nil {
-		reader = strings.NewReader(string(body))
-	}
-
+	if body != nil { reader = strings.NewReader(string(body)) }
 	req, _ := http.NewRequestWithContext(ctx, method, url, reader)
 	req.SetBasicAuth(r.client.ApiKey, r.client.ApiSecret)
 	req.Header.Set("Content-Type", "application/json")
-
 	httpResp, err := r.client.client.Do(req)
 	if err != nil {
 		diags.AddError("Client Error", err.Error())
 		return nil
 	}
 	defer httpResp.Body.Close()
-
 	respBody, _ := io.ReadAll(httpResp.Body)
 	if httpResp.StatusCode != 200 {
 		diags.AddError("API Error", fmt.Sprintf("Status %d: %s", httpResp.StatusCode, string(respBody)))
