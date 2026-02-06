@@ -97,19 +97,19 @@ func (r *KeaSubnetResource) Create(ctx context.Context, req resource.CreateReque
 	}
 
 	subnetData := map[string]interface{}{
-		"subnet": map[string]interface{}{
-			"subnet": data.Subnet.ValueString(),
+		"subnet4": map[string]interface{}{
+			"subnet4": data.Subnet.ValueString(),
 		},
 	}
 
 	if !data.Pools.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["pools"] = data.Pools.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["pools"] = data.Pools.ValueString()
 	}
 	if !data.Option.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["option_data"] = data.Option.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["option_data"] = data.Option.ValueString()
 	}
 	if !data.Description.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["description"] = data.Description.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["description"] = data.Description.ValueString()
 	}
 
 	jsonData, _ := json.Marshal(subnetData)
@@ -244,7 +244,7 @@ func (r *KeaSubnetResource) Create(ctx context.Context, req resource.CreateReque
 		uuid = uuidVal
 	} else if resultVal, ok := result["result"].(string); ok {
 		uuid = resultVal
-	} else if subnetData, ok := result["subnet"].(map[string]interface{}); ok {
+	} else if subnetData, ok := result["subnet4"].(map[string]interface{}); ok {
 		if uuidVal, ok := subnetData["uuid"].(string); ok {
 			uuid = uuidVal
 		}
@@ -332,7 +332,7 @@ func (r *KeaSubnetResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 
 	// Parse the subnet data from the response
-	if subnetData, ok := result["subnet"].(map[string]interface{}); ok {
+	if subnetData, ok := result["subnet4"].(map[string]interface{}); ok {
 		if subnet, ok := subnetData["subnet"].(string); ok {
 			data.Subnet = types.StringValue(subnet)
 		}
@@ -358,19 +358,19 @@ func (r *KeaSubnetResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	subnetData := map[string]interface{}{
-		"subnet": map[string]interface{}{
-			"subnet": data.Subnet.ValueString(),
+		"subnet4": map[string]interface{}{
+			"subnet4": data.Subnet.ValueString(),
 		},
 	}
 
 	if !data.Pools.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["pools"] = data.Pools.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["pools"] = data.Pools.ValueString()
 	}
 	if !data.Option.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["option_data"] = data.Option.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["option_data"] = data.Option.ValueString()
 	}
 	if !data.Description.IsNull() {
-		subnetData["subnet"].(map[string]interface{})["description"] = data.Description.ValueString()
+		subnetData["subnet4"].(map[string]interface{})["description"] = data.Description.ValueString()
 	}
 
 	jsonData, _ := json.Marshal(subnetData)

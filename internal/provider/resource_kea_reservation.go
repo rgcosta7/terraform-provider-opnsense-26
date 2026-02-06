@@ -102,7 +102,7 @@ func (r *KeaReservationResource) Create(ctx context.Context, req resource.Create
 	}
 
 	reservationData := map[string]interface{}{
-		"reservation": map[string]interface{}{
+		"reservation4": map[string]interface{}{
 			"subnet":     data.Subnet.ValueString(),
 			"ip_address": data.IPAddress.ValueString(),
 			"hw_address": data.HWAddress.ValueString(),
@@ -110,10 +110,10 @@ func (r *KeaReservationResource) Create(ctx context.Context, req resource.Create
 	}
 
 	if !data.Hostname.IsNull() {
-		reservationData["reservation"].(map[string]interface{})["hostname"] = data.Hostname.ValueString()
+		reservationData["reservation4"].(map[string]interface{})["hostname"] = data.Hostname.ValueString()
 	}
 	if !data.Description.IsNull() {
-		reservationData["reservation"].(map[string]interface{})["description"] = data.Description.ValueString()
+		reservationData["reservation4"].(map[string]interface{})["description"] = data.Description.ValueString()
 	}
 
 	jsonData, _ := json.Marshal(reservationData)
@@ -249,7 +249,7 @@ func (r *KeaReservationResource) Create(ctx context.Context, req resource.Create
 		uuid = uuidVal
 	} else if resultVal, ok := result["result"].(string); ok {
 		uuid = resultVal
-	} else if reservationData, ok := result["reservation"].(map[string]interface{}); ok {
+	} else if reservationData, ok := result["reservation4"].(map[string]interface{}); ok {
 		if uuidVal, ok := reservationData["uuid"].(string); ok {
 			uuid = uuidVal
 		}
@@ -337,7 +337,7 @@ func (r *KeaReservationResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 
 	// Parse the reservation data from the response
-	if reservationData, ok := result["reservation"].(map[string]interface{}); ok {
+	if reservationData, ok := result["reservation4"].(map[string]interface{}); ok {
 		if subnet, ok := reservationData["subnet"].(string); ok {
 			data.Subnet = types.StringValue(subnet)
 		}
@@ -366,7 +366,7 @@ func (r *KeaReservationResource) Update(ctx context.Context, req resource.Update
 	}
 
 	reservationData := map[string]interface{}{
-		"reservation": map[string]interface{}{
+		"reservation4": map[string]interface{}{
 			"subnet":     data.Subnet.ValueString(),
 			"ip_address": data.IPAddress.ValueString(),
 			"hw_address": data.HWAddress.ValueString(),
@@ -374,10 +374,10 @@ func (r *KeaReservationResource) Update(ctx context.Context, req resource.Update
 	}
 
 	if !data.Hostname.IsNull() {
-		reservationData["reservation"].(map[string]interface{})["hostname"] = data.Hostname.ValueString()
+		reservationData["reservation4"].(map[string]interface{})["hostname"] = data.Hostname.ValueString()
 	}
 	if !data.Description.IsNull() {
-		reservationData["reservation"].(map[string]interface{})["description"] = data.Description.ValueString()
+		reservationData["reservation4"].(map[string]interface{})["description"] = data.Description.ValueString()
 	}
 
 	jsonData, _ := json.Marshal(reservationData)
