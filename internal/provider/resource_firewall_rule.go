@@ -34,6 +34,7 @@ type FirewallRuleResource struct {
 type FirewallRuleResourceModel struct {
 	ID          types.String `tfsdk:"id"`
 	Description types.String `tfsdk:"description"`
+	Sequence    types.Int64  `tfsdk:"sequence"`
 	Interface   types.String `tfsdk:"interface"`
 	Direction   types.String `tfsdk:"direction"`
 	IPProtocol  types.String `tfsdk:"ip_protocol"`
@@ -72,6 +73,11 @@ func (r *FirewallRuleResource) Schema(ctx context.Context, req resource.SchemaRe
 			"description": schema.StringAttribute{
 				MarkdownDescription: "Description of the firewall rule",
 				Required:            true,
+			},
+			"sequence": schema.Int64Attribute{
+				MarkdownDescription: "Rule sequence/sort order (e.g., 800). Lower numbers are processed first.",
+				Optional:            true,
+				Computed:            true,
 			},
 			"interface": schema.StringAttribute{
 				MarkdownDescription: "Interface name (e.g., 'wan', 'lan', 'opt1')",
@@ -182,6 +188,11 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		},
 	}
 
+	// Add sequence if provided
+	if !data.Sequence.IsNull() {
+		ruleData["rule"].(map[string]interface{})["sequence"] = fmt.Sprintf("%d", data.Sequence.ValueInt64())
+	}
+
 	// Add optional fields
 	if !data.Interface.IsNull() {
 		ruleData["rule"].(map[string]interface{})["interface"] = data.Interface.ValueString()
@@ -232,18 +243,76 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	if !data.Invert.IsNull() {
 		if data.Invert.ValueBool() {
-			ruleData["rule"].(map[string]interface{})["invert"] = "1"
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "1"
 		} else {
-			ruleData["rule"].(map[string]interface{})["invert"] = "0"
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "0"
 		}
 	}
-	if !data.Categories.IsNull() {
-		var categories []string
-		resp.Diagnostics.Append(data.Categories.ElementsAs(ctx, &categories, false)...)
-		if !resp.Diagnostics.HasError() && len(categories) > 0 {
-			// OPNsense expects comma-separated category UUIDs
-			ruleData["rule"].(map[string]interface{})["category"] = strings.Join(categories, ",")
+	// Handle deprecated but still functional destination_not field
+	if !data.DestinationNot.IsNull() {
+		if data.DestinationNot.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "0"
 		}
+	}
+	// Handle deprecated but still functional source_not field
+	if !data.SourceNot.IsNull() {
+		if data.SourceNot.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["source_not"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["source_not"] = "0"
+		}
+	}
+	if !data.Categories.IsNull() && !data.Categories.IsUnknown() {
+		tflog.Debug(ctx, "Categories field is present", map[string]any{
+			"isNull": data.Categories.IsNull(),
+			"isUnknown": data.Categories.IsUnknown(),
+		})
+		var categories []string
+		diags := data.Categories.ElementsAs(ctx, &categories, false)
+		resp.Diagnostics.Append(diags...)
+		
+		tflog.Debug(ctx, "After parsing categories", map[string]any{
+			"count": len(categories),
+			"hasError": diags.HasError(),
+			"categories": fmt.Sprintf("%v", categories),
+		})
+		
+		if !diags.HasError() && len(categories) > 0 {
+			// Filter out empty/invalid UUIDs
+			validCategories := make([]string, 0, len(categories))
+			for _, cat := range categories {
+				if cat != "" {
+					validCategories = append(validCategories, cat)
+					tflog.Debug(ctx, "Valid category UUID", map[string]any{"uuid": cat})
+				} else {
+					tflog.Warn(ctx, "Skipping empty category UUID")
+				}
+			}
+			
+			if len(validCategories) > 0 {
+				categoryStr := strings.Join(validCategories, ",")
+				ruleData["rule"].(map[string]interface{})["category"] = categoryStr
+				tflog.Info(ctx, "Setting categories on rule", map[string]any{
+					"categories": categoryStr,
+					"count": len(validCategories),
+				})
+			} else {
+				tflog.Warn(ctx, "No valid category UUIDs found")
+			}
+		} else if diags.HasError() {
+			tflog.Error(ctx, "Error parsing categories", map[string]any{
+				"errors": fmt.Sprintf("%v", diags.Errors()),
+			})
+		} else {
+			tflog.Warn(ctx, "Categories list is empty")
+		}
+	} else {
+		tflog.Debug(ctx, "No categories field", map[string]any{
+			"isNull": data.Categories.IsNull(),
+			"isUnknown": data.Categories.IsUnknown(),
+		})
 	}
 
 	// Make API call to create rule
@@ -252,12 +321,6 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to marshal rule data: %s", err))
 		return
 	}
-
-	tflog.Debug(ctx, "Creating firewall rule", map[string]any{
-		"json": string(jsonData),
-		"destination_net": data.DestNet.ValueString(),
-		"source_net": data.SourceNet.ValueString(),
-	})
 
 	url := fmt.Sprintf("%s/api/firewall/filter/addRule", r.client.Host)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
@@ -283,11 +346,6 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read response: %s", err))
 		return
 	}
-
-	tflog.Debug(ctx, "API Response", map[string]any{
-		"status_code": httpResp.StatusCode,
-		"body": string(body),
-	})
 
 	if httpResp.StatusCode != 200 {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("API returned status %d: %s", httpResp.StatusCode, string(body)))
@@ -395,6 +453,11 @@ func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRe
 		},
 	}
 
+	// Add sequence if provided
+	if !data.Sequence.IsNull() {
+		ruleData["rule"].(map[string]interface{})["sequence"] = fmt.Sprintf("%d", data.Sequence.ValueInt64())
+	}
+
 	// Add optional fields (same as Create)
 	if !data.Interface.IsNull() {
 		ruleData["rule"].(map[string]interface{})["interface"] = data.Interface.ValueString()
@@ -437,9 +500,25 @@ func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	if !data.Invert.IsNull() {
 		if data.Invert.ValueBool() {
-			ruleData["rule"].(map[string]interface{})["invert"] = "1"
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "1"
 		} else {
-			ruleData["rule"].(map[string]interface{})["invert"] = "0"
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "0"
+		}
+	}
+	// Handle deprecated but still functional destination_not field
+	if !data.DestinationNot.IsNull() {
+		if data.DestinationNot.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "1"
+		} else {
+			ruleData["rule"].(map[string]interface{})["destination_not"] = "0"
+		}
+	}
+	// Handle deprecated but still functional source_not field
+	if !data.SourceNot.IsNull() {
+		if data.SourceNot.ValueBool() {
+			ruleData["rule"].(map[string]interface{})["source_not"] = "1"
+		} else{
+			ruleData["rule"].(map[string]interface{})["source_not"] = "0"
 		}
 	}
 	if !data.Categories.IsNull() {
