@@ -38,3 +38,5 @@ output "alias_name" {
   value       = opnsense_firewall_alias.test_alias.name
   description = "The name of the created alias"
 }
+
+
