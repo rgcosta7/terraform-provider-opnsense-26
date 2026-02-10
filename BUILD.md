@@ -91,7 +91,7 @@ Create a test configuration file `test.tf`:
 terraform {
   required_providers {
     opnsense = {
-      source  = "yourusername/opnsense"
+      source  = "rgcosta7/opnsense"
       version = "0.1.0"
     }
   }
