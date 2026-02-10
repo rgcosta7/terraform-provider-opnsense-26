@@ -6,6 +6,7 @@
 *.dylib
 bin/
 dist/
+*/*.sh
 
 # Test binary, built with `go test -c`
 *.test
@@ -45,3 +46,7 @@ Thumbs.db
 
 # Provider binary
 terraform-provider-opnsense
+
+
+# Half DOCS
+*/*_*.md
