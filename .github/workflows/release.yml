@@ -4,14 +4,12 @@ on:
   push:
     branches:
       - main
-    # Only trigger on commits that start with "BUILD:"
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - 'examples/**'
 
 jobs:
-  # Check if commit message starts with "BUILD:"
   check-trigger:
     runs-on: ubuntu-latest
     outputs:
@@ -38,10 +36,8 @@ jobs:
         id: extract
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          # Extract version from "BUILD: v1.2.3" or "BUILD: 1.2.3"
           VERSION=$(echo "$COMMIT_MSG" | sed -n 's/^BUILD: *v*\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
           if [ -z "$VERSION" ]; then
-            # Default version if not specified
             VERSION="0.1.0"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -92,29 +88,22 @@ jobs:
         run: |
           VERSION="${{ needs.check-trigger.outputs.version }}"
           
-          # Build the provider
           go mod download
-          go build -o terraform-provider-opnsense \
+          go build -o terraform-provider-opnsense_v${VERSION} \
             -ldflags="-s -w -X main.version=$VERSION" \
             -trimpath
           
-          # Create output directory
           mkdir -p dist
           
-          # Package the binary
+          # Package as ZIP for all platforms (Terraform Registry requirement)
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            mv terraform-provider-opnsense terraform-provider-opnsense.exe
+            mv terraform-provider-opnsense_v${VERSION} terraform-provider-opnsense_v${VERSION}.exe
             zip "dist/terraform-provider-opnsense_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" \
-              terraform-provider-opnsense.exe
+              terraform-provider-opnsense_v${VERSION}.exe
           else
-            tar -czf "dist/terraform-provider-opnsense_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" \
-              terraform-provider-opnsense
+            zip "dist/terraform-provider-opnsense_${VERSION}_${{ matrix.os }}_${{ matrix.arch }}.zip" \
+              terraform-provider-opnsense_v${VERSION}
           fi
-
-      - name: Generate SHA256 checksums
-        run: |
-          cd dist
-          sha256sum * > checksums.txt
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -142,12 +131,13 @@ jobs:
           mkdir -p release
           
           # Copy all binaries
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
+          find artifacts -type f -name "*.zip" -exec cp {} release/ \;
           
           # Generate combined SHA256SUMS
           cd release
-          sha256sum terraform-provider-opnsense_* > terraform-provider-opnsense_${{ needs.check-trigger.outputs.version }}_SHA256SUMS
+          sha256sum terraform-provider-opnsense_*.zip > terraform-provider-opnsense_${{ needs.check-trigger.outputs.version }}_SHA256SUMS
           
+          echo "📦 Release files:"
           ls -lah
 
       - name: Import GPG key
@@ -157,13 +147,12 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Sign checksums
+      - name: Sign checksums (BINARY format for Terraform Registry)
         run: |
           cd release
           VERSION="${{ needs.check-trigger.outputs.version }}"
           SHASUMS_FILE="terraform-provider-opnsense_${VERSION}_SHA256SUMS"
           
-          # Verify checksums file exists
           if [ ! -f "${SHASUMS_FILE}" ]; then
             echo "❌ Error: ${SHASUMS_FILE} not found"
             ls -la
@@ -171,56 +160,48 @@ jobs:
           fi
           
           echo "📝 Signing ${SHASUMS_FILE}..."
-          echo "File size: $(wc -c < "${SHASUMS_FILE}") bytes"
-          echo ""
-          
-          # Show GPG configuration
-          echo "🔑 GPG Configuration:"
-          gpg --version | head -1
-          echo ""
-          
-          # List keys
-          echo "🔑 Available keys:"
-          gpg --list-secret-keys
+          echo "File contents:"
+          cat "${SHASUMS_FILE}"
           echo ""
           
           # Get the key ID
           KEY_ID=$(gpg --list-secret-keys --keyid-format=long | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
-          echo "Using key: $KEY_ID"
+          echo "🔑 Using GPG key: $KEY_ID"
           echo ""
           
-          # Sign the checksums file with explicit options
-          echo "📝 Signing with GPG..."
-          gpg --batch --yes --pinentry-mode loopback --detach-sign --armor \
-            --default-key "$KEY_ID" \
+          # CRITICAL: Sign WITHOUT --armor to create BINARY signature
+          # Terraform Registry requires binary, NOT ASCII-armored!
+          echo "📝 Creating BINARY signature (required by Terraform Registry)..."
+          gpg --batch --yes --pinentry-mode loopback \
+            --detach-sign \
+            --local-user "$KEY_ID" \
             "${SHASUMS_FILE}"
           
-          # Check if signature was created
+          # Verify signature was created
           if [ ! -f "${SHASUMS_FILE}.sig" ]; then
             echo "❌ Error: Signature file not created"
-            echo "Checking GPG status..."
-            gpg --list-keys
-            echo ""
-            echo "Trying alternative signing method..."
-            # Try with explicit output file
-            gpg --batch --yes --pinentry-mode loopback --detach-sign --armor \
-              --output "${SHASUMS_FILE}.sig" \
-              --default-key "$KEY_ID" \
-              "${SHASUMS_FILE}" || {
-                echo "Alternative method also failed"
-                echo "GPG debug info:"
-                gpg --list-secret-keys --keyid-format=long
-                exit 1
-              }
+            exit 1
           fi
           
-          echo "✅ Checksums signed successfully"
-          ls -la "${SHASUMS_FILE}"*
+          # Verify it's BINARY format
+          echo ""
+          echo "🔍 Checking signature format..."
+          file "${SHASUMS_FILE}.sig"
+          if file "${SHASUMS_FILE}.sig" | grep -q "ASCII"; then
+            echo "❌ ERROR: Signature is ASCII armored!"
+            echo "Terraform Registry requires BINARY signatures!"
+            exit 1
+          fi
+          echo "✅ Signature is in binary format (correct for Terraform Registry)"
           echo ""
           
-          # Verify the signature
+          # Verify the signature works
           echo "🔍 Verifying signature..."
           gpg --verify "${SHASUMS_FILE}.sig" "${SHASUMS_FILE}"
+          echo ""
+          
+          echo "✅ Checksums signed successfully"
+          ls -lah "${SHASUMS_FILE}"*
 
       - name: Generate release notes
         id: notes
@@ -243,7 +224,7 @@ jobs:
           
           ## 🚀 Installation
           
-          ### Option 1: Terraform Registry (Coming Soon)
+          ### Terraform Registry
           
           \`\`\`hcl
           terraform {
@@ -254,71 +235,60 @@ jobs:
               }
             }
           }
-          \`\`\`
-          
-          ### Option 2: Local Installation
-          
-          #### Linux/macOS
-          
-          \`\`\`bash
-          # Download the appropriate binary for your platform
-          # Extract and install
-          mkdir -p ~/.terraform.d/plugins/localhost/local/opnsense/${VERSION}/linux_amd64
-          tar -xzf terraform-provider-opnsense_${VERSION}_linux_amd64.tar.gz -C ~/.terraform.d/plugins/localhost/local/opnsense/${VERSION}/linux_amd64/
-          \`\`\`
-          
-          #### Windows
-          
-          \`\`\`powershell
-          # Download the appropriate binary
-          # Extract to Terraform plugins directory
-          \$pluginDir = "\$env:APPDATA\terraform.d\plugins\localhost\local\opnsense\${VERSION}\windows_amd64"
-          New-Item -ItemType Directory -Force -Path \$pluginDir
-          Expand-Archive -Path terraform-provider-opnsense_${VERSION}_windows_amd64.zip -DestinationPath \$pluginDir
-          \`\`\`
-          
-          ### Option 3: Use in Terraform
-          
-          \`\`\`hcl
-          terraform {
-            required_providers {
-              opnsense = {
-                source  = "localhost/local/opnsense"
-                version = "${VERSION}"
-              }
-            }
-          }
           
           provider "opnsense" {
-            host       = "https://192.168.1.1"
+            host       = "https://your-opnsense.local"
             api_key    = var.opnsense_api_key
             api_secret = var.opnsense_api_secret
-            insecure   = true
           }
+          \`\`\`
+          
+          ### Manual Installation
+          
+          \`\`\`bash
+          # Download for your platform
+          # Linux AMD64
+          wget https://github.com/rgcosta7/terraform-provider-opnsense-26/releases/download/v${VERSION}/terraform-provider-opnsense_${VERSION}_linux_amd64.zip
+          unzip terraform-provider-opnsense_${VERSION}_linux_amd64.zip
+          mkdir -p ~/.terraform.d/plugins/registry.terraform.io/rgcosta7/opnsense/${VERSION}/linux_amd64/
+          mv terraform-provider-opnsense_v${VERSION} ~/.terraform.d/plugins/registry.terraform.io/rgcosta7/opnsense/${VERSION}/linux_amd64/
           \`\`\`
           
           ## 📚 Resources
           
           - **Firewall:** Rules, Aliases, Categories
+          - **DHCP (Kea):** Subnets and Reservations
           - **NAT:** Destination NAT (Port Forwarding)
-          - **DHCP:** Kea Subnets and Reservations
           - **VPN:** WireGuard Servers and Peers
+          
+          ## ✨ Features
+          
+          - Complete firewall rule management
+          - Rule categories with color coding
+          - Policy-based routing (gateway selection)
+          - DHCP subnet management with options
+          - Static IP reservations
+          - Alias support (IP/network/port groups)
           
           ## 🔐 Verification
           
-          Verify the download with SHA256 checksums:
-          
           \`\`\`bash
+          # Verify checksums
           sha256sum -c terraform-provider-opnsense_${VERSION}_SHA256SUMS
+          
+          # Verify GPG signature
+          gpg --verify terraform-provider-opnsense_${VERSION}_SHA256SUMS.sig terraform-provider-opnsense_${VERSION}_SHA256SUMS
           \`\`\`
           
           ## 📖 Documentation
           
-          Full documentation available at: https://github.com/rgcosta7/terraform-provider-opnsense-26
+          - [Complete Resources Reference](https://github.com/rgcosta7/terraform-provider-opnsense-26/blob/main/docs/ALL_RESOURCES_COMPLETE_REFERENCE.md)
+          - [Examples](https://github.com/rgcosta7/terraform-provider-opnsense-26/tree/main/examples)
+          - [Changelog](https://github.com/rgcosta7/terraform-provider-opnsense-26/blob/main/CHANGELOG.md)
           
           ## 🐛 Issues
           
-          Report issues at: https://github.com/rgcosta7/terraform-provider-opnsense-26/issues
+          Report issues: https://github.com/rgcosta7/terraform-provider-opnsense-26/issues
           EOF
           
           cat release-notes.md
@@ -341,5 +311,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** v${{ needs.check-trigger.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Platforms:** Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)" >> $GITHUB_STEP_SUMMARY
+          echo "**Signature:** Binary format (Terraform Registry compatible)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Files Generated:" >> $GITHUB_STEP_SUMMARY
+          echo "- 5 platform-specific ZIP files" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA256SUMS checksum file" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA256SUMS.sig signature file (binary format)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [View Release](https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-trigger.outputs.version }})" >> $GITHUB_STEP_SUMMARY
