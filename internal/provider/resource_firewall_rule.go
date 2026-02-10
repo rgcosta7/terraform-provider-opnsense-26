@@ -137,14 +137,12 @@ func (r *FirewallRuleResource) Schema(ctx context.Context, req resource.SchemaRe
 				Optional:            true,
 			},
 			"source_not": schema.BoolAttribute{
-				MarkdownDescription: "DEPRECATED: Use 'invert' instead. Invert source match",
+				MarkdownDescription: "Invert source match (NOT source)",
 				Optional:            true,
-				DeprecationMessage:  "This attribute is deprecated. Use 'invert' instead.",
 			},
 			"destination_not": schema.BoolAttribute{
-				MarkdownDescription: "DEPRECATED: Use 'invert' instead. Invert destination match",
+				MarkdownDescription: "Invert destination match (NOT destination)",
 				Optional:            true,
-				DeprecationMessage:  "This attribute is deprecated. Use 'invert' instead.",
 			},
 			"categories": schema.ListAttribute{
 				MarkdownDescription: "List of category UUIDs for organizing rules",
@@ -366,9 +364,9 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	// Log the full response for debugging
+	// Log the full response for debugging (debug level, not warning)
 	if resultJSON, err := json.MarshalIndent(result, "", "  "); err == nil {
-		resp.Diagnostics.AddWarning("API Response", fmt.Sprintf("Full response: %s", string(resultJSON)))
+		tflog.Debug(ctx, "API Response", map[string]any{"response": string(resultJSON)})
 	}
 
 	// Try to extract UUID from various possible response formats
