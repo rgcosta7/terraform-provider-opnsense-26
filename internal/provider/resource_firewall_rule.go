@@ -43,6 +43,7 @@ type FirewallRuleResourceModel struct {
 	SourcePort  types.String `tfsdk:"source_port"`
 	DestNet     types.String `tfsdk:"destination_net"`
 	DestPort    types.String `tfsdk:"destination_port"`
+	Gateway     types.String `tfsdk:"gateway"`
 	Action      types.String `tfsdk:"action"`
 	Enabled     types.Bool   `tfsdk:"enabled"`
 	Log         types.Bool   `tfsdk:"log"`
@@ -109,6 +110,10 @@ func (r *FirewallRuleResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"destination_port": schema.StringAttribute{
 				MarkdownDescription: "Destination port or port range",
+				Optional:            true,
+			},
+			"gateway": schema.StringAttribute{
+				MarkdownDescription: "Gateway to use for this rule (e.g., 'WAN_DHCP', 'WAN_GW', gateway name)",
 				Optional:            true,
 			},
 			"action": schema.StringAttribute{
@@ -212,6 +217,9 @@ func (r *FirewallRuleResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	if !data.DestPort.IsNull() {
 		ruleData["rule"].(map[string]interface{})["destination_port"] = data.DestPort.ValueString()
+	}
+	if !data.Gateway.IsNull() {
+		ruleData["rule"].(map[string]interface{})["gateway"] = data.Gateway.ValueString()
 	}
 	if !data.Action.IsNull() {
 		ruleData["rule"].(map[string]interface{})["action"] = data.Action.ValueString()
@@ -473,6 +481,9 @@ func (r *FirewallRuleResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	if !data.DestPort.IsNull() {
 		ruleData["rule"].(map[string]interface{})["destination_port"] = data.DestPort.ValueString()
+	}
+	if !data.Gateway.IsNull() {
+		ruleData["rule"].(map[string]interface{})["gateway"] = data.Gateway.ValueString()
 	}
 	if !data.Action.IsNull() {
 		ruleData["rule"].(map[string]interface{})["action"] = data.Action.ValueString()
