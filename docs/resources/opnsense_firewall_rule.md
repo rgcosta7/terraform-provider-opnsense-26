@@ -2,7 +2,7 @@
 
 ## ✅ ALL Fields Implemented!
 
-Based on your screenshot, here's the complete list of fields and their status:
+Here's the complete list of fields and their status:
 
 ### Organisation Section
 | Field | Status | Terraform Field | Notes |
