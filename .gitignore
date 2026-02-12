@@ -50,3 +50,5 @@ terraform-provider-opnsense
 
 # Half DOCS
 */*_*.md
+*SHA256SUMS*
+terraform-registry-key.asc
